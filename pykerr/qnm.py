@@ -14,14 +14,20 @@ MTSUN = 4.925491025543576e-06
 # we'll cache the splines
 _reomega_splines = {}
 _imomega_splines = {}
+_reomega_sd_splines = {}
+_imomega_sd_splines = {}
 
 
-def _create_spline(name, reim, l, m, n):
+def _create_spline(name, reim, l, m, n, scalar_driven=None):
     """Creates a cubic spline for the specified mode data."""
     # load the data
     lmn = '{}{}{}'.format(l, abs(m), n)
     try:
-        dfile = pkg_resources.resource_stream(__name__,
+        if scalar_driven:
+            dfile = pkg_resources.resource_stream(__name__,
+                                              'data/s0l{}.hdf'.format(l))
+        else:
+            dfile = pkg_resources.resource_stream(__name__,
                                               'data/l{}.hdf'.format(l))
     except OSError:
         raise ValueError("unsupported lmn {}{}{}".format(l, m, n))
@@ -36,12 +42,12 @@ def _create_spline(name, reim, l, m, n):
     return CubicSpline(x, y, axis=0, bc_type='not-a-knot', extrapolate=False)
 
 
-def _getspline(name, reim, l, m, n, cache):
+def _getspline(name, reim, l, m, n, cache, scalar_driven=None):
     """Gets a spline."""
     try:
         spline = cache[l, abs(m), n]
     except KeyError:
-        spline = _create_spline(name, reim, l, m, n)
+        spline = _create_spline(name, reim, l, m, n, scalar_driven)
         cache[l, abs(m), n] = spline
     return spline
 
@@ -53,7 +59,7 @@ def _checkspin(spin):
     return
 
 
-def _qnmomega(spin, l, m, n):
+def _qnmomega(spin, l, m, n, scalar_driven=None):
     """Returns the dimensionless complex angular frequency of a Kerr BH.
 
     Parmeters
@@ -74,8 +80,11 @@ def _qnmomega(spin, l, m, n):
         The complex angular frequency.
     """
     _checkspin(spin)
-    respline = _getspline('omega', 're', l, m, n, _reomega_splines)
-    imspline = _getspline('omega', 'im', l, m, n, _imomega_splines)
+    cache = [_reomega_splines, _imomega_splines]
+    if scalar_driven:
+        cache = [_reomega_sd_splines, _imomega_sd_splines]
+    respline = _getspline('omega', 're', l, m, n, cache[0], scalar_driven)
+    imspline = _getspline('omega', 'im', l, m, n, cache[1], scalar_driven)
     omega = respline(spin) + 1j*imspline(spin)
     # omega_{-m} = -omega_{m}.conj()
     if m < 0:
@@ -84,10 +93,10 @@ def _qnmomega(spin, l, m, n):
 
 
 # vectorize
-_npqnmomega = numpy.frompyfunc(_qnmomega, 4, 1)
+_npqnmomega = numpy.frompyfunc(_qnmomega, 5, 1)
 
-def qnmomega(spin, l, m, n):
-    out = _npqnmomega(spin, l, m, n)
+def qnmomega(spin, l, m, n, scalar_driven=None):
+    out = _npqnmomega(spin, l, m, n, scalar_driven)
     if isinstance(out, numpy.ndarray):
         out = out.astype(numpy.complex)
     return out
@@ -95,7 +104,7 @@ def qnmomega(spin, l, m, n):
 qnmomega.__doc__ = _qnmomega.__doc__
 
 
-def _qnmfreq(mass, spin, l, m, n):
+def _qnmfreq(mass, spin, l, m, n, scalar_driven=None):
     """Returns the QNM frequency for a Kerr black hole.
 
     Parameters
@@ -118,7 +127,10 @@ def _qnmfreq(mass, spin, l, m, n):
         The frequency (in Hz) of the requested mode.
     """
     _checkspin(spin)
-    spline = _getspline('omega', 're', l, m, n, _reomega_splines)
+    cache = _reomega_splines
+    if scalar_driven:
+        cache = _reomega_sd_splines
+    spline = _getspline('omega', 're', l, m, n, cache, scalar_driven)
     reomega = spline(spin)
     # negate the frequency if m < 0
     if m < 0:
@@ -126,10 +138,10 @@ def _qnmfreq(mass, spin, l, m, n):
     return reomega / (2*numpy.pi*mass*MTSUN)
 
 # vectorize
-_npqnmfreq = numpy.frompyfunc(_qnmfreq, 5, 1)
+_npqnmfreq = numpy.frompyfunc(_qnmfreq, 6, 1)
 
-def qnmfreq(mass, spin, l, m, n):
-    out = _npqnmfreq(mass, spin, l, m, n)
+def qnmfreq(mass, spin, l, m, n, scalar_driven=None):
+    out = _npqnmfreq(mass, spin, l, m, n, scalar_driven)
     if isinstance(out, numpy.ndarray):
         out = out.astype(numpy.float)
     return out
@@ -137,7 +149,7 @@ def qnmfreq(mass, spin, l, m, n):
 qnmfreq.__doc__ = _qnmfreq.__doc__
 
 
-def _qnmtau(mass, spin, l, m, n):
+def _qnmtau(mass, spin, l, m, n, scalar_driven=None):
     """"Returns the QNM damping time for a Kerr black hole.
 
     Parameters
@@ -160,17 +172,20 @@ def _qnmtau(mass, spin, l, m, n):
         The frequency (in Hz) of the requested mode.
     """
     _checkspin(spin)
-    spline = _getspline('omega', 'im', l, m, n, _imomega_splines)
+    cache = _imomega_splines
+    if scalar_driven:
+        cache = _imomega_sd_splines
+    spline = _getspline('omega', 'im', l, m, n, cache, scalar_driven)
     # Note: Berti et al. [arXiv:0512160] used the convention
     # h+ + ihx ~ e^{iwt}, (see Eq. 2.4) so we
     # need to negate the spline for tau to have the right sign.
     return -mass*MTSUN / spline(spin)
 
 # vectorize
-_npqnmtau = numpy.frompyfunc(_qnmtau, 5, 1)
+_npqnmtau = numpy.frompyfunc(_qnmtau, 6, 1)
 
-def qnmtau(mass, spin, l, m, n):
-    out = _npqnmtau(mass, spin, l, m, n)
+def qnmtau(mass, spin, l, m, n, scalar_driven):
+    out = _npqnmtau(mass, spin, l, m, n, scalar_driven)
     if isinstance(out, numpy.ndarray):
         out = out.astype(numpy.float)
     return out
