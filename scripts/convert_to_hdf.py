@@ -28,7 +28,7 @@ if opts.thin is not None:
 datfiles = glob.glob('{}/*.dat'.format(opts.input_directory))
 
 # regex for extracting n, l, m from file name
-regex = re.compile(r'n([1-9])l([2-9])m(m*[0-9])')
+regex = re.compile(r'n([1-9])l([0-9])m(m*[0-9])')
 
 # according to https://centra.tecnico.ulisboa.pt/network/grit/files/ringdown/,
 # the file format for the Kerr QNM are:
