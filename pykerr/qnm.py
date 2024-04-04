@@ -198,7 +198,7 @@ def _qnmtau(mass, spin, l, m, n, driven=None):
 # vectorize
 _npqnmtau = numpy.frompyfunc(_qnmtau, 6, 1)
 
-def qnmtau(mass, spin, l, m, n, driven):
+def qnmtau(mass, spin, l, m, n, driven=None):
     out = _npqnmtau(mass, spin, l, m, n, driven)
     if isinstance(out, numpy.ndarray):
         out = out.astype(numpy.float)
